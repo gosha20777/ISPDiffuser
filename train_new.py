@@ -11,7 +11,7 @@ import torchvision
 import models
 import datasets
 import utils
-from models.ISPDiffuser import ISPDiffuser
+from models.ISPDiffuser_new import ISPDiffuser
 
 
 def parse_args_and_config():

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from scipy.signal import gaussian
+from scipy.signal.windows import gaussian
 
 
 class Net(nn.Module):

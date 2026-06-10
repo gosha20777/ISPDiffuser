@@ -37,24 +37,32 @@ class AllWeatherDataset(torch.utils.data.Dataset):
     def __init__(self, dir, patch_size, filelist=None, train=True):
         super().__init__()
 
+        img_exts = (".png", ".jpg", ".npy", ".tiff", ".tif")
+
+        def get_paths(dir_path):
+            if not os.path.exists(dir_path):
+                return []
+            return [
+                os.path.join(dir_path, fname)
+                for fname in os.listdir(dir_path)
+                if fname.endswith(img_exts)
+            ]
+
         self.dir = dir
-        self.file_list = filelist
-
         self.train = train
-
-        self.train_list = os.path.join(dir, self.file_list)
-        with open(self.train_list) as f:
-            contents = f.readlines()
-            input_names = [i.strip() for i in contents]
-
-        self.input_names = input_names
         self.patch_size = patch_size
-        if 'ZRR' in self.dir:
+        if 'zrr' in self.dir:
             self.black_level, self.white_level, self.rho = 63, 1020, 8
-        elif 'MAI' in self.dir:
+        elif 'mai' in self.dir:
             self.black_level, self.white_level, self.rho = 255, 4095, 8
         else:
-            raise ValueError('Get wrong dataset name:{}'.format(dir))    
+            raise ValueError('Get wrong dataset name:{}'.format(dir))
+
+        self.input_paths = sorted(get_paths(os.path.join(dir, 'train/source')))
+        self.gt_paths = sorted(get_paths(os.path.join(dir, 'train/target')))
+        if not train:
+            self.input_paths = sorted(get_paths(os.path.join(dir, 'test/source')))
+            self.gt_paths = sorted(get_paths(os.path.join(dir, 'test/target')))
 
 
 
@@ -72,20 +80,16 @@ class AllWeatherDataset(torch.utils.data.Dataset):
     
 
     def get_images(self, index):
-        name = self.input_names[index].replace('\n', '')
-        input_name = name.split(' ')[0]
-
+        input_name = self.input_paths[index]
+        gt_name = self.gt_paths[index]
         img_id = input_name.split('/')[-1].split('.')[0]
-        if 'ZRR' in self.dir and self.train:
-            gt_name  =  name.split(' ')[2]
-        else:
-            gt_name = name.split(' ')[1]
+        
         input_img = np.expand_dims(np.asarray(np.asarray(imageio.imread(input_name))), axis=0)
         gt_img = np.expand_dims(np.asarray(np.asarray(imageio.imread(gt_name))), axis=0)
         
         input_raw, gt_img, gt_img_gray = np.expand_dims(np.asarray(imageio.imread(input_name)), axis=-1), \
             np.asarray(imageio.imread(gt_name)), \
-            np.expand_dims(np.asarray(imageio.imread(gt_name, as_gray=True)), axis=-1)
+            np.expand_dims(np.asarray(imageio.imread(gt_name, mode='L')), axis=-1)
         
 
         input_raw = np.maximum((input_raw - self.black_level), 0) / (self.white_level - self.black_level)
@@ -112,4 +116,4 @@ class AllWeatherDataset(torch.utils.data.Dataset):
         return res
 
     def __len__(self):
-        return len(self.input_names)
+        return len(self.input_paths)

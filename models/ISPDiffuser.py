@@ -1,4 +1,5 @@
 import os
+import csv
 import time
 import numpy as np
 import torch
@@ -6,7 +7,7 @@ import torch.nn as nn
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 import utils
-from utils.ISP import ISP_process
+#from utils.ISP import ISP_process
 from models.ddm import GaussianDiffusion, Unet
 from models.basic_model import AE, HCCM
 from utils.get_canny import Net as CannyFilter
@@ -183,9 +184,22 @@ class ISPDiffuser(object):
     def train(self, DATASET):
         cudnn.benchmark = True
         train_loader, val_loader = DATASET.get_loaders()
+        self.logs_path = os.path.join(self.config.data.ckpt_dir, 'metrics.csv')
+
+        
 
         if os.path.isfile(self.args.resume):
             self.load_ddm_ckpt(self.args.resume)
+        
+        self.logs_path = os.path.join(self.config.data.ckpt_dir, 'metrics.csv')
+
+        # Если файл не существует, создаем его и записываем заголовки колонок
+        if not os.path.isfile(self.logs_path):
+            with open(self.logs_path, mode="w", newline="") as f:
+                writer = csv.writer(f)
+                # Единый заголовок для лоссов и метрик валидации
+                writer.writerow(["step", "phase", "diff_loss", "feature_loss", "hist_loss", "texture_loss", "content_loss", "psnr", "ssim", "lpips", "time"])
+            
 
         # for name, param in self.model.named_parameters():
         #     if "AE_Downsampler" in name:
@@ -217,6 +231,21 @@ class ISPDiffuser(object):
                     print("step:{}, diff_loss:{:.5f} feature_loss:{:.5f} hist_loss:{:.5f} content_loss:{:.5f} time:{:.5f}".
                           format(self.step, diff_loss.item(),
                                  feature_loss.item(),hist_loss.item(), texture_loss.item(), content_loss.item(), data_time / (i + 1)))
+                    
+                    # Сохраняем строку в формате CSV
+                    with open(self.logs_path, mode="a", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow([
+                            self.step,
+                            "train", # фаза
+                            f"{diff_loss.item():.5f}",
+                            f"{feature_loss.item():.5f}",
+                            f"{hist_loss.item():.5f}",
+                            f"{texture_loss.item():.5f}",
+                            f"{content_loss.item():.5f}",
+                            "", "", "", # пустые значения для psnr, ssim, lpips (они считаются на валидации)
+                            f"{data_time / (i + 1):.5f}"
+                        ])
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -268,6 +297,7 @@ class ISPDiffuser(object):
 
                 y = y.permute(0, 2, 3, 1).squeeze(0).detach().cpu().numpy()
                 y = np.clip(y * 255.0, 0, 255.0).astype('uint8')
+                print(y.shape)
 
                 
                 for i in range(10):
@@ -277,7 +307,7 @@ class ISPDiffuser(object):
                     recon_img = np.clip(recon_img * 255.0, 0, 255.0).astype('uint8')
                 
                     psnr_gt = peak_signal_noise_ratio(recon_img, y, data_range=255)
-                    ssim_gt = structural_similarity(recon_img, y, win_size=11, data_range=255, multichannel=True, gaussian_weights=True)
+                    ssim_gt = structural_similarity(recon_img, y, win_size=11, data_range=255, channel_axis=-1, gaussian_weights=True)
                     lpips_gt = calc_lpips(recon_img, y, loss_fn_alex_v1)
                     if i == 0:
                         pred_x_save = pred_x
@@ -298,3 +328,16 @@ class ISPDiffuser(object):
                 lpips_adder(lpips_save)
                 print('idx:{} psnr:{} ssim: {}, lpips:{}'.format(img_id,  psnr_save, ssim_save, lpips_save))
             print('avg psnr: {}, avg ssim: {} lpips:{}'.format(psnr_adder.average(), ssim_adder.average(), lpips_adder.average()))
+
+            # Сохраняем метрики в тот же CSV
+            with open(self.logs_path, mode="a", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    step,
+                    "val", # фаза
+                    "", "", "", "", "", # пустые значения для лоссов (они считаются на трейне)
+                    f"{psnr_adder.average():.5f}",
+                    f"{ssim_adder.average():.5f}",
+                    f"{lpips_adder.average():.5f}",
+                    "" # время валидации (если не считаешь)
+                ])
